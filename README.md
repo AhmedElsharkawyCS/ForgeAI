@@ -18,11 +18,11 @@ A powerful, state-based AI agent SDK that works seamlessly in both Node.js and b
 ## Installation
 
 ```bash
-npm install forge-ai-sdk openai
+npm install @ahmedelsharkawycs/forge-ai-sdk openai
 # or
-yarn add forge-ai-sdk openai
+yarn add @ahmedelsharkawycs/forge-ai-sdk openai
 # For Anthropic Claude:
-npm install forge-ai-sdk @anthropic-ai/sdk
+npm install @ahmedelsharkawycs/forge-ai-sdk @anthropic-ai/sdk
 ```
 
 ## Quick Start
@@ -34,7 +34,7 @@ import {
   Agent, 
   InMemoryAdapter, 
   OpenAIProvider 
-} from 'forge-ai-sdk';
+} from '@ahmedelsharkawycs/forge-ai-sdk';
 
 // Create an agent
 const agent = new Agent({
@@ -86,7 +86,7 @@ console.log(files);
 #### Browser (LocalStorage)
 
 ```typescript
-import { Agent, LocalStorageAdapter, OpenAIProvider } from 'forge-ai-sdk';
+import { Agent, LocalStorageAdapter, OpenAIProvider } from '@ahmedelsharkawycs/forge-ai-sdk';
 
 const agent = new Agent({
   adapter: new LocalStorageAdapter('my-agent-state'), // Custom storage key
@@ -97,7 +97,7 @@ const agent = new Agent({
 #### Node.js (File System)
 
 ```typescript
-import { Agent, NodeFSAdapter, AnthropicProvider } from 'forge-ai-sdk';
+import { Agent, NodeFSAdapter, AnthropicProvider } from '@ahmedelsharkawycs/forge-ai-sdk';
 
 const agent = new Agent({
   adapter: new NodeFSAdapter('./.ai-agent-state.json'), // Atomic writes, file watching
@@ -108,7 +108,7 @@ const agent = new Agent({
 ### Using Anthropic (Claude)
 
 ```typescript
-import { Agent, InMemoryAdapter, AnthropicProvider } from 'forge-ai-sdk';
+import { Agent, InMemoryAdapter, AnthropicProvider } from '@ahmedelsharkawycs/forge-ai-sdk';
 
 const agent = new Agent({
   adapter: new InMemoryAdapter(),
@@ -162,7 +162,7 @@ The planning phase generates these action types:
 Manages the agent's state with transactional updates, version tracking, and rollback support:
 
 ```typescript
-import { StateManager, InMemoryAdapter } from 'forge-ai-sdk';
+import { StateManager, InMemoryAdapter } from '@ahmedelsharkawycs/forge-ai-sdk';
 
 const stateManager = new StateManager(new InMemoryAdapter());
 await stateManager.initialize();
@@ -183,7 +183,7 @@ await stateManager.rollback(previousVersion);
 Operates on virtual files without touching the real filesystem:
 
 ```typescript
-import { VirtualFileSystem } from 'forge-ai-sdk';
+import { VirtualFileSystem } from '@ahmedelsharkawycs/forge-ai-sdk';
 
 const vfs = new VirtualFileSystem([
   { path: '/src/app.ts', content: 'code', version: 1, lastModified: Date.now() }
@@ -225,7 +225,7 @@ vfs.applyChanges([
 Enforce safety policies and restrictions:
 
 ```typescript
-import { PolicyGate } from 'forge-ai-sdk';
+import { PolicyGate } from '@ahmedelsharkawycs/forge-ai-sdk';
 
 const policyGate = new PolicyGate({
   maxFileSize: 1024 * 1024, // 1MB (default)
@@ -607,7 +607,7 @@ import {
   ActionPlanSchema,
   type IntentResult,
   type ActionPlan
-} from 'forge-ai-sdk';
+} from '@ahmedelsharkawycs/forge-ai-sdk';
 
 // Validate unknown data
 const data: unknown = getLLMResponse();
@@ -621,7 +621,7 @@ if (result.success) {
 }
 
 // Safe parsing with fallback
-import { parseOrDefault } from 'forge-ai-sdk';
+import { parseOrDefault } from '@ahmedelsharkawycs/forge-ai-sdk';
 const plan = parseOrDefault(ActionPlanSchema, data, defaultPlan);
 ```
 
@@ -630,7 +630,7 @@ const plan = parseOrDefault(ActionPlanSchema, data, defaultPlan);
 The SDK includes a configurable logger:
 
 ```typescript
-import { Logger } from 'forge-ai-sdk';
+import { Logger } from '@ahmedelsharkawycs/forge-ai-sdk';
 
 // Create logger with log level
 const logger = new Logger('info'); // 'info' | 'debug' | 'error' | 'all' | 'none'

@@ -1,5 +1,5 @@
 {
-  "name": "forge-ai-sdk",
+  "name": "@ahmedelsharkawycs/forge-ai-sdk",
   "version": "1.0.0",
   "description": "A powerful multi-phase AI agent SDK for building code generation systems with support for multiple LLM providers",
   "main": "./dist/index.js",
