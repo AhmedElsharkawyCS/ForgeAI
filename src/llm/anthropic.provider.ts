@@ -87,7 +87,8 @@ export class AnthropicProvider implements ILLMProvider {
         temperature: this.defaultTemperature,
         system,
         messages,
-        stream: true
+        stream: true,
+        tools: request.tools ? this.convertTools(request.tools) : undefined
       });
 
       for await (const event of stream) {

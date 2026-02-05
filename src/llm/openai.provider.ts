@@ -53,11 +53,6 @@ export class OpenAIProvider implements ILLMProvider {
 
       return {
         content: message.content || '',
-        toolCalls: message.tool_calls?.map(tc => ({
-          id: tc.id,
-          name: tc.function.name,
-          arguments: JSON.parse(tc.function.arguments)
-        })),
         finishReason: this.mapFinishReason(choice.finish_reason),
         usage: completion.usage ? {
           promptTokens: completion.usage.prompt_tokens,
@@ -79,7 +74,8 @@ export class OpenAIProvider implements ILLMProvider {
         messages,
         temperature: this.defaultTemperature,
         max_tokens: this.defaultMaxTokens,
-        stream: true
+        stream: true,
+        tools: request.tools ? this.convertTools(request.tools) : undefined
       });
 
       for await (const chunk of stream) {

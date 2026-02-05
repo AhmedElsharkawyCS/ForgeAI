@@ -1,6 +1,6 @@
-# Contributing to AI Agent SDK
+# Contributing to ForgeAI SDK
 
-Thank you for your interest in contributing to the AI Agent SDK! This SDK provides a powerful multi-phase orchestration system for building AI-powered code generation agents.
+Thank you for your interest in contributing to the ForgeAI SDK (`@ahmedelsharkawycs/forge-ai-sdk`)! This SDK provides a powerful multi-phase orchestration system for building AI-powered code generation agents.
 
 ## Table of Contents
 
@@ -40,14 +40,14 @@ We are committed to providing a welcoming and inclusive environment for all cont
 2. Clone your fork locally:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/web-ai-agant-sdk.git
-cd web-ai-agant-sdk
+git clone https://github.com/YOUR_USERNAME/ForgeAI.git
+cd ForgeAI
 ```
 
 3. Add the upstream repository:
 
 ```bash
-git remote add upstream https://github.com/ORIGINAL_OWNER/web-ai-agant-sdk.git
+git remote add upstream https://github.com/AhmedElsharkawyCS/ForgeAI.git
 ```
 
 ### Environment Setup
@@ -73,7 +73,7 @@ VITE_OPENAI_API_KEY=your-openai-api-key-here
 VITE_ANTHROPIC_API_KEY=your-anthropic-api-key-here
 ```
 
-4. The SDK is located in `src/ai-agant-v2/` - this is where you'll make your contributions
+4. The SDK is located in `src/` - this is where you'll make your contributions
 
 ## SDK Architecture
 
@@ -82,7 +82,7 @@ The SDK is organized into several key modules:
 ### Core Modules
 
 ```
-src/ai-agant-v2/
+src/
 ├── adapters/              # Storage adapters for state persistence
 │   ├── adapter.interface.ts
 │   ├── localstorage.adapter.ts

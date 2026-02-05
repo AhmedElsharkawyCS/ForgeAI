@@ -1,8 +1,8 @@
-# AI Agent SDK v2 - Architecture Documentation
+# ForgeAI SDK - Architecture Documentation
 
 ## Overview
 
-The AI Agent SDK v2 is a comprehensive, state-based AI agent system designed to work seamlessly across Node.js and browser environments. It manages virtual files as state and operates through a well-defined phase-based orchestration pattern.
+The ForgeAI SDK (`@ahmedelsharkawycs/forge-ai-sdk`) is a comprehensive, state-based AI agent system designed to work seamlessly across Node.js and browser environments. It manages virtual files as state and operates through a well-defined phase-based orchestration pattern.
 
 ## Core Design Principles
 
@@ -774,7 +774,7 @@ interface LLMProviderConfig {
 ### Creating Custom Storage Adapter
 
 ```typescript
-import { IStorageAdapter, AgentState } from "ai-agent-sdk"
+import { IStorageAdapter, AgentState } from "@ahmedelsharkawycs/forge-ai-sdk"
 
 class RedisAdapter implements IStorageAdapter {
   constructor(
@@ -808,7 +808,7 @@ class RedisAdapter implements IStorageAdapter {
 ### Creating Custom LLM Provider
 
 ```typescript
-import { ILLMProvider, LLMRequest, LLMResponse, LLMChunk } from "ai-agent-sdk"
+import { ILLMProvider, LLMRequest, LLMResponse, LLMChunk } from "@ahmedelsharkawycs/forge-ai-sdk"
 
 class OllamaProvider implements ILLMProvider {
   name = "ollama"
@@ -859,7 +859,7 @@ class OllamaProvider implements ILLMProvider {
 ### Custom Policy Rules
 
 ```typescript
-import { PolicyGate } from "ai-agent-sdk"
+import { PolicyGate } from "@ahmedelsharkawycs/forge-ai-sdk"
 
 // Extend PolicyGate for custom rules
 class StrictPolicyGate extends PolicyGate {
@@ -939,7 +939,7 @@ class StrictPolicyGate extends PolicyGate {
 Enable detailed logging:
 
 ```typescript
-import { Logger } from "ai-agent-sdk"
+import { Logger } from "@ahmedelsharkawycs/forge-ai-sdk"
 
 const logger = new Logger("all")
 
@@ -1008,4 +1008,4 @@ console.log("Messages:", agent.getMessages().length)
 
 ## Conclusion
 
-The AI Agent SDK v2 provides a robust, extensible foundation for building AI-powered applications that manipulate code and files. Its phase-based architecture ensures clear separation of concerns, while its pluggable components enable customization for specific use cases. The event-driven design with streaming support enables rich, real-time user experiences.
+The ForgeAI SDK provides a robust, extensible foundation for building AI-powered applications that manipulate code and files. Its phase-based architecture ensures clear separation of concerns, while its pluggable components enable customization for specific use cases. The event-driven design with streaming support enables rich, real-time user experiences.
