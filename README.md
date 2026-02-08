@@ -14,6 +14,9 @@ A powerful, state-based AI agent SDK that works seamlessly in both Node.js and b
 - 🔄 **Transactional State**: Rollback support with snapshot history
 - ✅ **Type-Safe**: Full TypeScript support with Zod runtime validation
 - 🌊 **Streaming Support**: Real-time LLM response streaming
+- 🧩 **Dependency Graph**: Automatic import/export parsing for context-aware code generation
+- 📋 **Project Templates**: Pre-built React + Vite + MUI starter templates
+- 🏗️ **Modular Prompt System**: Tiered, composable prompts for each agent phase
 
 ## Installation
 
@@ -50,6 +53,15 @@ const agent = new Agent({
       lastModified: Date.now()
     }
   ]
+});
+
+// Or use a pre-built template for quick bootstrapping
+import { getReactMUIViteTemplate } from '@ahmedelsharkawycs/forge-ai-sdk';
+
+const agentWithTemplate = new Agent({
+  adapter: new InMemoryAdapter(),
+  provider: new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY }),
+  initialFiles: getReactMUIViteTemplate() // React + Vite + MUI + TypeScript
 });
 
 // Initialize
@@ -119,6 +131,26 @@ const agent = new Agent({
 });
 ```
 
+### Using Project Templates
+
+The SDK ships with a pre-built React + Vite + MUI + TypeScript template that includes all essential project files (`App.tsx`, `main.tsx`, `theme.ts`, `package.json`, `vite.config.ts`, `tsconfig.json`, `index.html`):
+
+```typescript
+import { Agent, InMemoryAdapter, OpenAIProvider, getReactMUIViteTemplate } from '@ahmedelsharkawycs/forge-ai-sdk';
+
+const agent = new Agent({
+  adapter: new InMemoryAdapter(),
+  provider: new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY }),
+  initialFiles: getReactMUIViteTemplate()
+});
+
+await agent.initialize();
+
+// The agent now has full project context and can generate components,
+// update the theme, add dependencies to package.json, etc.
+await agent.sendMessage('Add a login page with email and password fields');
+```
+
 ## Architecture
 
 The agent follows a phase-based orchestration pattern:
@@ -154,6 +186,8 @@ The planning phase generates these action types:
 - `update_file` - Update existing file content
 - `delete_file` - Delete a file
 - `read_file` - Read file for context
+
+Each action can include a `relatedFiles` array populated by the planning phase using the dependency graph, which provides the execution phase with the right context for code generation.
 
 ### Core Components
 
@@ -208,17 +242,10 @@ vfs.applyChanges([
 
 **Supported Languages** (auto-detected from file extension):
 - TypeScript (`.ts`, `.tsx`)
-- JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`)
-- Python (`.py`, `.pyw`)
-- Rust (`.rs`)
-- Go (`.go`)
-- C/C++ (`.c`, `.cpp`, `.h`, `.hpp`)
+- JavaScript (`.js`, `.jsx`)
 - JSON (`.json`)
+- HTML (`.html`)
 - Markdown (`.md`)
-- HTML/CSS (`.html`, `.css`, `.scss`, `.sass`, `.less`)
-- YAML (`.yml`, `.yaml`)
-- SQL (`.sql`)
-- Bash (`.sh`, `.bash`)
 
 #### 3. Policy Gate
 
@@ -230,7 +257,7 @@ import { PolicyGate } from '@ahmedelsharkawycs/forge-ai-sdk';
 const policyGate = new PolicyGate({
   maxFileSize: 1024 * 1024, // 1MB (default)
   allowedFileTypes: ['ts', 'tsx', 'js', 'jsx', 'json'],
-  maxConcurrentActions: 10, // default
+  maxConcurrentActions: 20, // default
   requireConfirmation: true
 });
 
@@ -358,7 +385,7 @@ const unsubscribe = adapter.watch((state) => {
 ```typescript
 const provider = new OpenAIProvider({
   apiKey: 'sk-...',
-  model: 'gpt-4o', // default
+  model: 'gpt-5.2', // default
   organization: 'org-...', // optional
   baseURL: 'https://api.openai.com/v1', // optional
   streaming: true // Enable/disable streaming (default: true)
@@ -403,7 +430,7 @@ const agent = new Agent({
   policies: {
     maxFileSize: 500 * 1024, // 500KB
     allowedFileTypes: ['ts', 'tsx'],
-    maxConcurrentActions: 3,
+    maxConcurrentActions: 20, // default is 20
     requireConfirmation: false
   }
 });
@@ -606,7 +633,8 @@ import {
   IntentResultSchema,
   ActionPlanSchema,
   type IntentResult,
-  type ActionPlan
+  type ActionPlan,
+  type ValidationResult
 } from '@ahmedelsharkawycs/forge-ai-sdk';
 
 // Validate unknown data
@@ -623,6 +651,13 @@ if (result.success) {
 // Safe parsing with fallback
 import { parseOrDefault } from '@ahmedelsharkawycs/forge-ai-sdk';
 const plan = parseOrDefault(ActionPlanSchema, data, defaultPlan);
+
+// ValidationResult uses simple string errors
+const validation: ValidationResult = {
+  isValid: true,
+  summary: '## Changes Summary\n...',
+  errors: [] // Simple string array (no more ValidationError objects)
+};
 ```
 
 ## Logging

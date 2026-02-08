@@ -43,6 +43,12 @@ The ForgeAI SDK (`@ahmedelsharkawycs/forge-ai-sdk`) is a comprehensive, state-ba
     │   Phase   │──▶│   Phase    │──▶│    Phase    │
     └───────────┘   └────────────┘   └─────────────┘
           │                │                │
+          │    ┌───────────┴────────┐       │
+          │    │  Context Builder   │       │
+          │    │  ├ Dependency Graph│       │
+          │    │  ├ Package Parser  │       │
+          │    │  └ File Context    │       │
+          │    └───────────┬────────┘       │
           └────────────────┼────────────────┘
                            │
                            ▼
@@ -52,13 +58,22 @@ The ForgeAI SDK (`@ahmedelsharkawycs/forge-ai-sdk`) is a comprehensive, state-ba
                   └─────────────────┘
                            │
                            ▼
-                     LLM Provider
-                  (OpenAI, Anthropic)
-                           │
-              ┌────────────┴────────────┐
-              │                         │
-         Non-Streaming              Streaming
-         (llm:start/complete)    (stream:start/chunk/complete)
+               ┌─────────────────────┐
+               │   Tiered Prompts    │
+               │  ┌ Core Identity    │
+               │  ├ Stack Definition │
+               │  ├ Code Standards   │
+               │  └ Phase Roles      │
+               └─────────┬───────────┘
+                         │
+                         ▼
+                    LLM Provider
+                 (OpenAI, Anthropic)
+                         │
+             ┌───────────┴───────────┐
+             │                       │
+        Non-Streaming            Streaming
+        (llm:start/complete)  (stream:start/chunk/complete)
 ```
 
 ## Component Breakdown
@@ -148,7 +163,7 @@ interface AgentState {
 
 - File CRUD operations
 - Version tracking per file
-- Automatic language inference from extensions
+- Automatic language inference from extensions (web-only stack)
 - Pattern-based file searching
 - Batch operations via `applyChanges()`
 
@@ -164,20 +179,13 @@ interface AgentState {
 - `getFileState()`: Get raw FileState map
 
 **Language Detection**:
-Automatically detects language from file extension:
+Automatically detects language from file extension (focused on web development stack):
 
 - TypeScript: `.ts`, `.tsx`
-- JavaScript: `.js`, `.jsx`, `.mjs`, `.cjs`
-- Python: `.py`, `.pyw`
-- Rust: `.rs`
-- Go: `.go`
-- C/C++: `.c`, `.cpp`, `.h`, `.hpp`
+- JavaScript: `.js`, `.jsx`
 - JSON: `.json`
+- HTML: `.html`
 - Markdown: `.md`
-- HTML/CSS: `.html`, `.css`, `.scss`, `.sass`, `.less`
-- YAML: `.yml`, `.yaml`
-- SQL: `.sql`
-- Bash: `.sh`, `.bash`
 
 #### Differ (`state/differ.ts`)
 
@@ -267,13 +275,15 @@ interface IntentResult {
 **Process**:
 
 1. Build context from files (max 10, sorted by lastModified)
-2. Build messages context (max 10 messages, truncated)
-3. Send to LLM with `INTENT_SYSTEM_PROMPT`
-4. Parse JSON response
-5. Fallback to default query intent on parse failure
-6. Emit `intent:complete` event
+2. Build messages context (max 10 messages, truncated to 1000 chars)
+3. Build package dependencies context from `package.json`
+4. Build dependency graph context from file imports
+5. Send to LLM with `INTENT_SYSTEM_PROMPT`
+6. Parse JSON response
+7. Fallback to default query intent on parse failure
+8. Emit `intent:complete` event
 
-**Prompt**: Uses `buildIntentUserPrompt()` with user message, files context, messages context
+**Prompt**: Uses `buildIntentUserPrompt()` with user message, files context, messages context, package dependencies, and dependency graph
 
 #### Planning Phase (`orchestrator/phases/plan.phase.ts`)
 
@@ -297,23 +307,24 @@ interface Action {
   type: "create_file" | "update_file" | "delete_file" | "read_file"
   path: string
   description: string
-  params?: {
-    content?: string
-    relatedFiles?: string[]
-  }
+  relatedFiles?: string[] // Files related through imports/dependencies (populated using dependency graph)
 }
 ```
 
 **Process**:
 
 1. Build context with intent result
-2. Request plan from LLM with `PLANNING_SYSTEM_PROMPT`
-3. Parse action list from response
-4. Validate plan against PolicyGate
-5. Throw error if policy violation
-6. Emit `plan:complete` event
+2. Build package dependencies context
+3. Build dependency graph context
+4. Request plan from LLM with `PLANNING_SYSTEM_PROMPT`
+5. Parse action list from response
+6. Validate plan against PolicyGate
+7. Throw error if policy violation
+8. Emit `plan:complete` event
 
-**Prompt**: Uses `buildPlanningUserPrompt()` with intent result and file context
+**Key Design**: The planning phase populates `relatedFiles` on each action using the dependency graph. This tells the execution phase which files to include as context when generating code, ensuring correct import statements and consistent patterns.
+
+**Prompt**: Uses `buildPlanningUserPrompt()` with intent result, file context, package dependencies, and dependency graph
 
 #### Execution Phase (`orchestrator/phases/execute.phase.ts`)
 
@@ -337,9 +348,10 @@ interface ExecutionResult {
 1. Execute actions sequentially
 2. For each action:
    - Emit `action:start` event
-   - Generate content via LLM (with conversation context)
-   - Extract relevant files based on `action.params.relatedFiles`
-   - Build file context (max 50 lines per file)
+   - Generate content via LLM (separate methods for create vs update)
+   - Extract relevant files based on `action.relatedFiles` (populated by plan phase)
+   - Build file context (full content for related files)
+   - Pass package dependencies and dependency graph as context
    - Validate against policies
    - Apply changes via `StateManager.updateFiles()`
    - Emit `action:complete` or `action:failed` event
@@ -347,16 +359,27 @@ interface ExecutionResult {
 
 **Content Generation**:
 
-- Uses `EXECUTION_SYSTEM_PROMPT` for code implementation
-- Builds context with existing file content (if updating)
-- Includes conversation history for context
-- Extracts code from markdown code blocks in response
+- Uses `EXECUTION_SYSTEM_PROMPT` for code implementation (composed from tiered prompt modules)
+- Two separate methods: `generateCreateFileContent()` and `generateUpdateFileContent()`
+- Includes conversation history, package dependencies, and dependency graph
+- Extracts code from structured `<code_snippet>` tags (not markdown code fences)
+- Code snippets include metadata: `language`, `action_type`, and `path` attributes
 
-**Prompt**: Uses `buildExecutionUserPrompt()` with action details, existing content, conversation, related files
+**Code Extraction Format**:
+
+The LLM is instructed to wrap output in structured tags:
+
+```xml
+<code_snippet language="typescript" action_type="create_file" path="/src/components/Button.tsx">
+// file content here
+</code_snippet>
+```
+
+**Prompt**: Uses `buildExecutionUserPrompt()` with action details, existing content, conversation, related files, package dependencies, and dependency graph
 
 #### Validation Phase (`orchestrator/phases/validate.phase.ts`)
 
-**Purpose**: Validate execution results and generate markdown summary
+**Purpose**: Validate execution results align with original intent and generate markdown summary
 
 **Input**: PhaseContext with ExecutionResult, IntentResult
 
@@ -365,10 +388,8 @@ interface ExecutionResult {
 ```typescript
 interface ValidationResult {
   isValid: boolean
-  summary: string // Markdown formatted summary
-  errors: string[]
-  warnings: string[]
-  suggestions?: string[]
+  summary: string // Markdown-formatted summary (4 sections: Overview, Files Modified, Key Changes, What's Done Well)
+  errors: string[] // Simple error messages (only for intent mismatches or incomplete execution)
 }
 ```
 
@@ -382,9 +403,11 @@ interface ValidationResult {
 
 **Features**:
 
-- LLM-based validation with markdown summary generation
+- Focused on intent alignment verification (not code quality checking)
+- Simplified error model: plain string array instead of structured `ValidationError` objects
+- No more `warnings` or `suggestions` fields
 - `quickValidate()` method for fast checks without LLM call
-- Combines LLM warnings with execution errors
+- Summary follows a fixed 4-section format: Overview, Files Modified, Key Changes, What's Done Well
 
 **Prompt**: Uses `buildValidationUserPrompt()` with execution results and original intent
 
@@ -394,10 +417,12 @@ interface ValidationResult {
 
 **Methods**:
 
-- `buildFilesContext(files)`: Summarize files (max 10, sorted by lastModified)
-- `buildMessagesContext(messages)`: Build conversation history (max 10 messages, truncated content)
-- `buildFileContent(content)`: Truncate large files (shows first/last halves with note)
+- `buildFilesContext(files, maxFiles)`: Summarize files (default: 10, supports `"all"`, sorted by lastModified)
+- `buildMessagesContext(messages, maxMessages, maxLength)`: Build conversation history (max 10 messages, truncated to 1000 chars)
+- `buildFileContent(file, maxLines)`: Truncate large files (supports `"all"` for full content, shows first/last halves with note)
 - `extractRelevantFiles(files, paths)`: Filter files by paths (case-insensitive, supports directories)
+- `buildDependencyGraphContext(files, maxFiles)`: Build dependency graph from file imports/exports (default: 50, supports `"all"`)
+- `buildPackageDependenciesContext(files)`: Extract and format dependencies from `package.json`
 
 **Path Convention**:
 
@@ -422,8 +447,8 @@ interface ILLMProvider {
 #### OpenAIProvider (`llm/openai.provider.ts`)
 
 - **SDK**: Uses `openai` package
-- **Default Model**: `gpt-4o`
-- **Default Streaming**: `true`
+- **Default Model**: `gpt-5.2`
+- **Default Streaming**: `false`
 - **Features**:
   - Tool calling support
   - Streaming support (configurable via `streaming` option)
@@ -435,30 +460,51 @@ interface ILLMProvider {
 
 - **SDK**: Uses `@anthropic-ai/sdk` package
 - **Default Model**: `claude-sonnet-4-5`
-- **Default Streaming**: `true`
+- **Default Max Tokens**: `8192`
+- **Default Streaming**: `false`
 - **Features**:
   - Tool calling support (converts to Anthropic format)
   - Streaming support (configurable via `streaming` option)
   - System prompt handling (separate from messages per Anthropic API)
   - Stop reason mapping (`end_turn` → `stop`, etc.)
 
-### 7. Prompts (`llm/prompts.ts`)
+### 7. Prompts (`llm/prompts/`)
 
-**Base System Prompt**: Senior software engineer persona with React/TypeScript/MUI expertise
+The prompt system uses a **tiered, composable architecture** split across multiple files. Each phase's system prompt is composed by joining the relevant tiers.
 
-**Phase-Specific Prompts**:
+**Tier 1 - Core Identity** (`core.ts`):
+- `AGENT_IDENTITY`: Senior software engineer persona, React/TypeScript/MUI/Vite focus, used by ALL phases
 
-- `INTENT_SYSTEM_PROMPT`: Intent classification specialist
-- `PLANNING_SYSTEM_PROMPT`: Technical architect for action planning
-- `EXECUTION_SYSTEM_PROMPT`: Code implementation specialist
-- `VALIDATION_SYSTEM_PROMPT`: Code reviewer & QA specialist
+**Tier 2 - Stack & Structure** (`stack.ts`):
+- `STACK_DEFINITION`: Allowed technologies (React 18+, TypeScript strict, MUI v5+, Vite, styled() API)
+- `PROJECT_STRUCTURE`: Feature-based project layout, file extension rules, organizational principles
 
-**User Prompt Builders**:
+**Tier 3 - Code Standards** (`standards.ts`):
+- `CODE_STANDARDS`: Comprehensive coding guidelines, used ONLY by Execute phase. Includes:
+  - React guidelines (component architecture, hooks, patterns)
+  - TypeScript guidelines (type system, best practices)
+  - MUI guidelines (theme system, design tokens, components)
+  - Styling rules (styled() API primary, sx secondary, forbidden approaches)
+  - Vite, routing, state management, API patterns
+  - Code quality, naming conventions, import order, accessibility, security
 
-- `buildIntentUserPrompt(message, filesContext, messagesContext)`: Intent classification request
-- `buildPlanningUserPrompt(intentResult, fileContext)`: Plan generation request
-- `buildExecutionUserPrompt(action, existingContent, conversation, relatedFiles)`: Code generation request
-- `buildValidationUserPrompt(executionResult, intentResult)`: Validation request
+**Phase-Specific Prompts** (composed from tiers):
+
+| Prompt File | Tiers Used | Role |
+|---|---|---|
+| `intent.ts` | Identity + Stack | Intent classification specialist |
+| `plan.ts` | Identity + Stack + Structure | Technical architect for action planning |
+| `execute.ts` | Identity + Stack + Structure + Standards | Code implementation specialist |
+| `validate.ts` | Identity only | Change validator & summary generator |
+
+**User Prompt Builders** (`builders.ts`):
+
+- `buildIntentUserPrompt(message, filesContext, messagesContext, packageDependencies, dependencyGraph)`: Intent classification request
+- `buildPlanningUserPrompt(intentResult, fileContext, packageDependencies, dependencyGraph)`: Plan generation request
+- `buildExecutionUserPrompt(action, options)`: Code generation request (options include `existingContent`, `conversationSummary`, `fileContext`, `packageDependencies`, `dependencyGraph`)
+- `buildValidationUserPrompt(changes, originalIntent)`: Validation request
+
+**Barrel Export** (`index.ts`): Re-exports all prompts and builders for clean imports
 
 ### 8. Validation & Safety
 
@@ -472,7 +518,7 @@ interface ILLMProvider {
 interface PolicyConfig {
   maxFileSize?: number // Default: 1MB
   allowedFileTypes?: string[] // Whitelist of extensions
-  maxConcurrentActions?: number // Default: 10
+  maxConcurrentActions?: number // Default: 20
   requireConfirmation?: boolean // Require user confirmation
 }
 ```
@@ -500,10 +546,10 @@ interface PolicyConfig {
 - `VirtualFileSchema`
 - `MessageSchema`
 - `IntentResultSchema`
-- `ActionSchema`
+- `ActionSchema` (uses `relatedFiles: z.array(z.string()).optional()` instead of `params`)
 - `ActionPlanSchema`
 - `ExecutionResultSchema`
-- `ValidationResultSchema`
+- `ValidationResultSchema` (simplified: `errors: z.array(z.string())`, no warnings/suggestions)
 - `AgentStateSchema`
 
 **Helper Functions**:
@@ -570,6 +616,84 @@ interface PolicyConfig {
 - `createChildLogger(prefix)`: Create prefixed child logger
 - `getHistory()`: Get log history array
 
+### 11. Dependency Graph (`utils/dependency-graph.ts`)
+
+**Purpose**: Parse import/export statements from virtual files and build a dependency graph
+
+**Types**:
+
+```typescript
+interface DependencyGraph {
+  dependencies: Map<string, string[]> // file -> files it imports
+  dependents: Map<string, string[]> // file -> files that import it
+}
+```
+
+**Key Functions**:
+
+- `buildDependencyGraph(files)`: Parse all files and build forward/reverse dependency maps
+- `formatDependencyGraph(graph, maxFiles)`: Format as readable string for LLM prompts
+- `resolveImportPath(specifier, importerPath, existingPaths)`: Resolve import specifiers to absolute paths
+
+**Import Resolution**:
+
+- Handles relative paths (`./Button`, `../hooks/useAuth`)
+- Handles absolute paths (`/src/components/Button`)
+- Tries extensions: `.ts`, `.tsx`, `.js`, `.jsx`
+- Tries index files: `/index.ts`, `/index.tsx`, `/index.js`, `/index.jsx`
+- Skips bare modules (third-party: `react`, `@mui/material`, etc.)
+
+**Supported Import Patterns**:
+
+- ES6 imports: `import ... from '...'`
+- ES6 re-exports: `export ... from '...'`
+- Dynamic imports: `import('...')`
+- CommonJS require: `require('...')`
+
+### 12. Package Parser (`utils/package-parser.ts`)
+
+**Purpose**: Parse `package.json` content and format dependency information for LLM prompts
+
+**Types**:
+
+```typescript
+interface PackageDependencies {
+  dependencies: Record<string, string>
+  devDependencies: Record<string, string>
+  peerDependencies: Record<string, string>
+  scripts: Record<string, string>
+}
+```
+
+**Key Functions**:
+
+- `parsePackageJson(content)`: Parse raw JSON string into `PackageDependencies` (returns null on failure)
+- `formatPackageDependencies(deps)`: Format as readable string showing production deps, dev deps, peer deps, and scripts
+
+### 13. Project Templates (`templates/`)
+
+**Purpose**: Pre-built project templates for quickly bootstrapping new projects with the correct structure
+
+**Available Templates**:
+
+- `getReactMUIViteTemplate()`: Returns an array of `VirtualFile[]` with a complete React + Vite + TypeScript + MUI project
+
+**Template Files Included**:
+
+| File | Description |
+|---|---|
+| `/src/App.tsx` | Welcome page component with MUI components |
+| `/src/main.tsx` | Entry point with ThemeProvider and CssBaseline |
+| `/src/theme/theme.ts` | Full MUI theme configuration (palette, typography, spacing, component overrides) |
+| `/src/vite-env.d.ts` | Vite environment type reference |
+| `/index.html` | HTML entry point |
+| `/package.json` | Dependencies (React 18, MUI 5, Emotion, Vite 5, TypeScript 5.6) |
+| `/vite.config.ts` | Vite configuration with React plugin |
+| `/tsconfig.json` | Strict TypeScript configuration |
+| `/tsconfig.node.json` | Node-specific TypeScript configuration |
+
+**Usage**: Pass as `initialFiles` to `Agent` constructor for a ready-to-use project scaffold.
+
 ## Data Flow
 
 ### Request Processing Flow
@@ -587,7 +711,7 @@ Build PhaseContext (files, messages)
     ↓
 [Intent Phase]
     ├─ Emit 'intent:start'
-    ├─ Build context → ContextBuilder
+    ├─ Build context → ContextBuilder (files, messages, package deps, dependency graph)
     ├─ Call LLM → LLMProvider.complete() or stream()
     ├─ Parse & validate → IntentResultSchema
     ├─ Store result → StateManager.addPhaseResult()
@@ -595,9 +719,9 @@ Build PhaseContext (files, messages)
     ↓
 [Planning Phase]
     ├─ Emit 'plan:start'
-    ├─ Build context with intent
+    ├─ Build context with intent, package deps, dependency graph
     ├─ Call LLM → LLMProvider.complete() or stream()
-    ├─ Parse & validate → ActionPlanSchema
+    ├─ Parse & validate → ActionPlanSchema (actions include relatedFiles)
     ├─ Check policies → PolicyGate.validatePlan()
     ├─ Store result → StateManager.addPhaseResult()
     └─ Emit 'plan:complete'
@@ -606,7 +730,9 @@ Build PhaseContext (files, messages)
     ├─ Emit 'execute:start'
     ├─ For each action:
     │   ├─ Emit 'action:start'
-    │   ├─ Generate content → LLM
+    │   ├─ Get relevant files from action.relatedFiles (populated by plan phase)
+    │   ├─ Generate content → LLM (with package deps + dependency graph)
+    │   ├─ Extract code from <code_snippet> tags
     │   ├─ Validate → PolicyGate.validateFileChanges()
     │   ├─ Apply changes → StateManager.updateFiles()
     │   ├─ Emit file events (file:create/update/delete)
@@ -727,6 +853,20 @@ interface StateSnapshot {
 ### Phase Types (`types/phases.ts`)
 
 ```typescript
+interface Action {
+  id: string
+  type: "create_file" | "update_file" | "delete_file" | "read_file"
+  path: string
+  description: string
+  relatedFiles?: string[] // Files related through imports/dependencies (populated by plan phase using dependency graph)
+}
+
+interface ValidationResult {
+  isValid: boolean
+  summary: string // Markdown-formatted summary (4 sections: Overview, Files Modified, Key Changes, What's Done Well)
+  errors: string[] // Simple error messages (only for intent mismatches or incomplete execution)
+}
+
 interface PhaseContext {
   files: VirtualFile[]
   messages: Message[]
@@ -885,12 +1025,14 @@ class StrictPolicyGate extends PolicyGate {
 ## Performance Considerations
 
 1. **State Snapshots**: Limited to last 10 versions by default (configurable)
-2. **File Context**: Truncates large files in LLM prompts (first/last halves)
-3. **Message History**: Limits to 10 recent messages sent to LLM
-4. **Files Context**: Limits to 10 files sorted by lastModified
+2. **File Context**: Supports configurable truncation (`maxLines` parameter, supports `"all"` for full content)
+3. **Message History**: Limits to 10 recent messages sent to LLM (truncated to 1000 chars each)
+4. **Files Context**: Limits to 10 files sorted by lastModified (supports `"all"`)
 5. **Atomic Operations**: Uses transactions for state consistency
 6. **Event Emission**: Synchronous handlers, avoid blocking operations
 7. **Streaming**: Reduces perceived latency for long responses
+8. **Dependency Graph**: Efficiently parsed from file content, cached per request
+9. **Tiered Prompts**: Validation phase uses minimal prompt (Identity only), reducing token usage
 
 ## Security Considerations
 
@@ -911,6 +1053,8 @@ class StrictPolicyGate extends PolicyGate {
 5. **Template Method**: BasePhase provides unified LLM calling
 6. **Factory Pattern**: ContextBuilder creates context objects
 7. **Memento Pattern**: Snapshots for state rollback
+8. **Composition Pattern**: Tiered prompts composed from reusable modules
+9. **Graph Pattern**: Dependency graph for import/export relationship tracking
 
 ## Testing Strategy
 
@@ -954,47 +1098,6 @@ agent.on("error", (e) => logger.error("Error:", e))
 
 Access internals:
 
-````typescript
-const state = agent.getState()
-console.log("Version:", state.version)
-console.log("Phase:", state.currentPhase)
-console.log(
-  "Files:",
-  agent.getFiles().map((f) => f.path)
-)
-console.log("Messages:", agent.getMessages().length)
-
-1. **Parallel Actions**: Execute independent actions concurrently
-2. **Plugin System**: Third-party phase implementations
-3. **Conflict Resolution**: Handle concurrent state modifications
-4. **Undo/Redo**: User-facing state navigation
-5. **Rate Limiting**: LLM API throttling
-6. **Caching**: Cache LLM responses for similar requests
-7. **Multi-Agent**: Coordinate multiple agents
-8. **Middleware**: Pre/post processing hooks for phases
-9. **Metrics**: Performance and usage tracking
-10. **WebSocket Support**: Real-time state sync across clients
-
-## Debugging
-
-Enable detailed logging:
-
-```typescript
-import { Logger } from 'ai-agent-sdk';
-
-const logger = new Logger('all');
-
-// Track all events
-agent.on('intent:start', () => logger.info('Intent phase starting'));
-agent.on('intent:complete', (r) => logger.debug('Intent:', r));
-agent.on('plan:complete', (p) => logger.debug('Plan:', p.actions));
-agent.on('action:start', (a) => logger.info('Action:', a.type, a.path));
-agent.on('stream:chunk', ({ content }) => process.stdout.write(content));
-agent.on('error', (e) => logger.error('Error:', e));
-````
-
-Access internals:
-
 ```typescript
 const state = agent.getState()
 console.log("Version:", state.version)
@@ -1008,4 +1111,4 @@ console.log("Messages:", agent.getMessages().length)
 
 ## Conclusion
 
-The ForgeAI SDK provides a robust, extensible foundation for building AI-powered applications that manipulate code and files. Its phase-based architecture ensures clear separation of concerns, while its pluggable components enable customization for specific use cases. The event-driven design with streaming support enables rich, real-time user experiences.
+The ForgeAI SDK provides a robust, extensible foundation for building AI-powered applications that manipulate code and files. Its phase-based architecture ensures clear separation of concerns, while its pluggable components enable customization for specific use cases. The tiered prompt system, dependency graph, and package-aware context provide the LLM with rich, accurate information for high-quality code generation. The event-driven design with streaming support enables rich, real-time user experiences.

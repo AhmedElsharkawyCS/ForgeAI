@@ -19,7 +19,7 @@ export interface Action {
   type: 'create_file' | 'update_file' | 'delete_file' | 'read_file';
   path: string;
   description: string;
-  params?: Record<string, unknown>;
+  relatedFiles?: string[]; // Files related through imports/dependencies (populated by plan phase using dependency graph)
 }
 
 export interface ActionPlan {
@@ -39,17 +39,8 @@ export interface ExecutionResult {
 
 export interface ValidationResult {
   isValid: boolean;
-  summary: string; // Markdown-formatted summary of changes
-  errors: ValidationError[];
-  warnings: string[];
-  suggestions?: string[];
-}
-
-export interface ValidationError {
-  code: string;
-  message: string;
-  path?: string;
-  severity: 'error' | 'warning';
+  summary: string; // Markdown-formatted summary of changes (4 sections: Overview, Files Modified, Key Changes, What's Done Well)
+  errors: string[]; // Simple error messages (only for intent mismatches or incomplete execution)
 }
 
 export interface PhaseContext {

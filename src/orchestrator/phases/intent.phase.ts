@@ -31,18 +31,21 @@ export class IntentPhase extends BasePhase {
       // Build context for LLM
       const filesContext = ContextBuilder.buildFilesContext(context.files);
       const messagesContext = ContextBuilder.buildMessagesContext(context.messages);
+      const packageDependencies = ContextBuilder.buildPackageDependenciesContext(context.files);
+      const dependencyGraph = ContextBuilder.buildDependencyGraphContext(context.files);
 
       const userPrompt = buildIntentUserPrompt(
         userMessage,
         filesContext,
-        messagesContext
+        messagesContext,
+        packageDependencies,
+        dependencyGraph
       );
 
       this.logger.debug('Calling LLM for intent analysis', {
         filesCount: context.files.length,
         messagesCount: context.messages.length,
       });
-
       const responseContent = await this.callLLM({
         systemPrompt: INTENT_SYSTEM_PROMPT,
         messages: [{ role: 'user' as const, content: userPrompt }]

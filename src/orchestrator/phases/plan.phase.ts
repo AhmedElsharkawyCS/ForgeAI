@@ -32,7 +32,9 @@ export class PlanPhase extends BasePhase {
 
       // Build context for LLM
       const filesContext = ContextBuilder.buildFilesContext(context.files);
-      const userPrompt = buildPlanningUserPrompt(intent, filesContext);
+      const packageDependencies = ContextBuilder.buildPackageDependenciesContext(context.files);
+      const dependencyGraph = ContextBuilder.buildDependencyGraphContext(context.files);
+      const userPrompt = buildPlanningUserPrompt(intent, filesContext, packageDependencies, dependencyGraph);
 
       this.logger.debug('Calling LLM for plan generation');
 

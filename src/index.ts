@@ -53,6 +53,9 @@ export { EventEmitter } from './events';
 // Logger
 export { Logger, createChildLogger, type LogLevel } from './utils/logger';
 
+// Templates
+export { getReactMUIViteTemplate } from './templates';
+
 // Types
 export type {
   // Core State Types
@@ -73,7 +76,6 @@ export type {
   ActionPlan,
   ExecutionResult,
   ValidationResult,
-  ValidationError,
   PhaseContext,
 
   // Provider Types

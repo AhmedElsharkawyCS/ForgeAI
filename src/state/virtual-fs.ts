@@ -141,30 +141,16 @@ export class VirtualFileSystem {
   private inferLanguage(path: string): string | undefined {
     const ext = path.split('.').pop()?.toLowerCase();
     
+    // Only web development languages (Vite + React + TypeScript + MUI stack)
+    // CSS/SCSS excluded - use MUI styled() API only
     const languageMap: Record<string, string> = {
       'ts': 'typescript',
       'tsx': 'typescript',
       'js': 'javascript',
       'jsx': 'javascript',
-      'py': 'python',
-      'java': 'java',
-      'rs': 'rust',
-      'go': 'go',
-      'cpp': 'cpp',
-      'c': 'c',
-      'h': 'c',
-      'hpp': 'cpp',
       'json': 'json',
-      'md': 'markdown',
       'html': 'html',
-      'css': 'css',
-      'scss': 'scss',
-      'yaml': 'yaml',
-      'yml': 'yaml',
-      'xml': 'xml',
-      'sql': 'sql',
-      'sh': 'bash',
-      'bash': 'bash'
+      'md': 'markdown'
     };
 
     return ext ? languageMap[ext] : undefined;

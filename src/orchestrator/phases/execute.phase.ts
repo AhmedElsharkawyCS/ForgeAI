@@ -12,6 +12,13 @@ import { PolicyGate } from '../../validators/policy-gate';
 import { Logger, createChildLogger } from '../../utils/logger';
 import { BasePhase } from './base.phase';
 
+interface ExtractedCode {
+  code: string;
+  language?: string;
+  actionType?: string;
+  path?: string;
+}
+
 export class ExecutePhase extends BasePhase {
   constructor(
     llmProvider: ILLMProvider,
@@ -152,7 +159,7 @@ export class ExecutePhase extends BasePhase {
     }
 
     // Generate file content using LLM
-    const content = await this.generateFileContent(action, context);
+    const content = await this.generateCreateFileContent(action, context);
 
     return [{
       type: 'create',
@@ -170,7 +177,7 @@ export class ExecutePhase extends BasePhase {
     }
 
     // Generate updated content using LLM
-    const content = await this.generateFileContent(action, context, existingFile.content);
+    const content = await this.generateUpdateFileContent(action, context, existingFile.content);
 
     return [{
       type: 'update',
@@ -187,14 +194,15 @@ export class ExecutePhase extends BasePhase {
     }];
   }
 
-  private async generateFileContent(
+  /**
+   * Generate content for creating a new file
+   */
+  private async generateCreateFileContent(
     action: Action,
-    context: PhaseContext,
-    existingContent?: string // only used for update actions
+    context: PhaseContext
   ): Promise<string> {
-    this.logger.debug('Generating file content with LLM', {
+    this.logger.debug('Generating new file content with LLM', {
       path: action.path,
-      hasExistingContent: !!existingContent,
       messageCount: context.messages.length,
     });
 
@@ -205,16 +213,21 @@ export class ExecutePhase extends BasePhase {
     const conversationSummary = ContextBuilder.buildMessagesContext(context.messages);
 
     // Build file context
-    const fileContext = this.buildFileContext(relevantFiles);
+    const fileContext = this.buildFileContext(relevantFiles, "all");
 
-    // Build user prompt with pre-built contexts
+    // Build package dependencies and dependency graph
+    const packageDependencies = ContextBuilder.buildPackageDependenciesContext(context.files);
+    const dependencyGraph = ContextBuilder.buildDependencyGraphContext(context.files);
+
+    // Build user prompt for creating new file (no existing content)
     const userPrompt = buildExecutionUserPrompt(action, {
-      existingContent,
       conversationSummary,
       fileContext,
+      packageDependencies,
+      dependencyGraph,
     });
 
-    this.logger.debug('Calling LLM for content generation', {
+    this.logger.debug('Calling LLM for new file content generation', {
       hasConversationSummary: !!conversationSummary,
       hasFileContext: !!fileContext,
       relevantFilesCount: relevantFiles.length,
@@ -225,23 +238,121 @@ export class ExecutePhase extends BasePhase {
       messages: [{ role: 'user' as const, content: userPrompt }]
     }, 'executing');
 
-    this.logger.debug('LLM generated content', {
+    this.logger.debug('LLM generated new file content', {
       contentLength: responseContent.length,
     });
 
     // Extract code from response
-    return this.extractCode(responseContent, action.path);
+    const extracted = this.extractCode(responseContent);
+
+    this.logger.debug('Extracted code metadata', {
+      language: extracted.language,
+      actionType: extracted.actionType,
+      path: extracted.path,
+    });
+
+    return extracted.code;
   }
 
-  private extractCode(content: string, _filename: string): string {
-    // Try to extract code from markdown code blocks
-    const codeBlockMatch = content.match(/```[\w]*\n([\s\S]*?)```/);
-    if (codeBlockMatch) {
-      return codeBlockMatch[1]?.trim() || content.trim();
+  /**
+   * Generate content for updating an existing file
+   */
+  private async generateUpdateFileContent(
+    action: Action,
+    context: PhaseContext,
+    existingContent: string
+  ): Promise<string> {
+    this.logger.debug('Generating updated file content with LLM', {
+      path: action.path,
+      existingContentLength: existingContent.length,
+      messageCount: context.messages.length,
+    });
+
+    // Get relevant files for context based on action type
+    const relevantFiles = this.getRelevantFiles(action, context.files);
+
+    // Build conversation summary
+    const conversationSummary = ContextBuilder.buildMessagesContext(context.messages);
+
+    // Build file context
+    const fileContext = this.buildFileContext(relevantFiles, "all");
+
+    // Build package dependencies and dependency graph
+    const packageDependencies = ContextBuilder.buildPackageDependenciesContext(context.files);
+    const dependencyGraph = ContextBuilder.buildDependencyGraphContext(context.files);
+
+    // Build user prompt for updating file (includes existing content)
+    const userPrompt = buildExecutionUserPrompt(action, {
+      existingContent,
+      conversationSummary,
+      fileContext,
+      packageDependencies,
+      dependencyGraph,
+    });
+
+    this.logger.debug('Calling LLM for file update content generation', {
+      hasConversationSummary: !!conversationSummary,
+      hasFileContext: !!fileContext,
+      relevantFilesCount: relevantFiles.length,
+      existingContentLength: existingContent.length,
+    });
+
+    const responseContent = await this.callLLM({
+      systemPrompt: EXECUTION_SYSTEM_PROMPT,
+      messages: [{ role: 'user' as const, content: userPrompt }]
+    }, 'executing');
+
+    this.logger.debug('LLM generated updated file content', {
+      contentLength: responseContent.length,
+      contentChanged: responseContent.length !== existingContent.length,
+    });
+
+    // Extract code from response
+    const extracted = this.extractCode(responseContent);
+
+    this.logger.debug('Extracted code metadata', {
+      language: extracted.language,
+      actionType: extracted.actionType,
+      path: extracted.path,
+    });
+
+    return extracted.code;
+  }
+
+  /**
+   * Extract code from LLM response
+   * Only accepts structured code_snippet tags with metadata
+   * Returns an object with all metadata plus the code
+   */
+  private extractCode(content: string): ExtractedCode {
+    // Extract code from structured code_snippet tag
+    const snippetMatch = content.match(
+      /<code_snippet\s+language="([^"]+)"\s+action_type="([^"]+)"\s+path="([^"]+)"\s*>([\s\S]*?)<\/code_snippet>/
+    );
+
+    if (snippetMatch) {
+      const [, language, actionType, path, code] = snippetMatch;
+
+      this.logger.debug('Extracted code from structured tag', {
+        language,
+        actionType,
+        path,
+        codeLength: code?.trim().length || 0,
+      });
+
+      return {
+        code: code?.trim() || '',
+        language,
+        actionType,
+        path,
+      };
     }
 
-    // If no code block, return the whole content trimmed
-    return content.trim();
+    // No structured format found - return raw content with error
+    this.logger.error('No structured code_snippet tag found in LLM response');
+    return {
+      code: content.trim(),
+    };
   }
 
   /**
@@ -250,7 +361,7 @@ export class ExecutePhase extends BasePhase {
    * @param maxLines - Maximum lines per file (default: 50)
    * @returns Formatted markdown string with file contents, or undefined if no files
    */
-  private buildFileContext(relevantFiles: VirtualFile[], maxLines: number = 50): string | undefined {
+  private buildFileContext(relevantFiles: VirtualFile[], maxLines: number | 'all' = 50): string | undefined {
     if (relevantFiles.length === 0) {
       return undefined;
     }
@@ -263,38 +374,39 @@ export class ExecutePhase extends BasePhase {
 
   private inferLanguage(path: string): string | undefined {
     const ext = path.split('.').pop()?.toLowerCase();
+    // Only web development languages (Vite + React + TypeScript stack)
     const languageMap: Record<string, string> = {
       'ts': 'typescript',
       'tsx': 'typescript',
       'js': 'javascript',
       'jsx': 'javascript',
-      'py': 'python',
-      'java': 'java',
-      'rs': 'rust',
-      'go': 'go'
+      'json': 'json',
+      'html': 'html',
+      'md': 'markdown'
     };
     return ext ? languageMap[ext] : undefined;
   }
 
   /**
-   * Get relevant files for context based on action type
+   * Get relevant files for context based on action.relatedFiles
+   * The plan phase populates relatedFiles using the dependency graph
    */
   private getRelevantFiles(action: Action, files: VirtualFile[]): VirtualFile[] {
-    const relatedFiles = action.params?.relatedFiles as string[] || [];
-
-    if (relatedFiles.length > 0) {
-      return ContextBuilder.extractRelevantFiles(files, relatedFiles);
+    // Use relatedFiles from action (populated by plan phase using dependency graph)
+    if (action.relatedFiles && action.relatedFiles.length > 0) {
+      this.logger.debug('Using relatedFiles from action', {
+        actionId: action.id,
+        relatedFilesCount: action.relatedFiles.length,
+      });
+      return ContextBuilder.extractRelevantFiles(files, action.relatedFiles);
     }
 
-    switch (action.type) {
-      case 'create_file':
-      case 'update_file':
-        return files.slice(0, 5);
-      case 'delete_file':
-      case 'read_file':
-        return [];
-      default:
-        return files.slice(0, 5);
-    }
+    // No related files specified - return empty array
+    // The plan phase should have populated relatedFiles using the dependency graph
+    this.logger.debug('No relatedFiles in action, returning empty context', {
+      actionId: action.id,
+      actionType: action.type,
+    });
+    return [];
   }
 }

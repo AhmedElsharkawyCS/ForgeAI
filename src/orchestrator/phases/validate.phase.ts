@@ -3,7 +3,7 @@
  */
 
 import type { ILLMProvider } from '../../types/providers';
-import type { ValidationResult, ValidationError, ExecutionResult, IntentResult } from '../../types/phases';
+import type { ValidationResult, ExecutionResult, IntentResult } from '../../types/phases';
 import type { EventEmitter } from '../../events/emitter';
 import { ValidationResultSchema, validateSchema } from '../../validators/schemas';
 import { VALIDATION_SYSTEM_PROMPT, buildValidationUserPrompt } from '../../llm/prompts';
@@ -34,7 +34,10 @@ export class ValidatePhase extends BasePhase {
       const executionContext = this.buildExecutionContext(execution);
       const intentSummary = JSON.stringify(intent, null, 2);
 
-      const userPrompt = buildValidationUserPrompt(executionContext, intentSummary);
+      const userPrompt = buildValidationUserPrompt(
+        executionContext,
+        intentSummary,
+      );
 
       this.logger.debug('Calling LLM for validation and summary generation');
 
@@ -52,8 +55,7 @@ export class ValidatePhase extends BasePhase {
 
       this.logger.info('Validation completed', {
         isValid: validationResult.isValid,
-        errorsCount: validationResult.errors.length,
-        warningsCount: validationResult.warnings.length,
+        errorsCount: validationResult.errors.length
       });
 
       // Add execution errors to validation errors
@@ -61,11 +63,7 @@ export class ValidatePhase extends BasePhase {
         this.logger.error('Execution errors found', { errors: execution.errors });
 
         for (const error of execution.errors) {
-          validationResult.errors.push({
-            code: 'EXECUTION_ERROR',
-            message: error,
-            severity: 'error'
-          });
+          validationResult.errors.push(`Execution error: ${error}`);
         }
         validationResult.isValid = false;
 
@@ -84,12 +82,7 @@ export class ValidatePhase extends BasePhase {
       return {
         isValid: false,
         summary: `## ❌ Validation Failed\n\nAn error occurred during validation: ${error.message}`,
-        errors: [{
-          code: 'VALIDATION_ERROR',
-          message: `Validation failed: ${error.message}`,
-          severity: 'error'
-        }],
-        warnings: []
+        errors: [`Validation failed: ${error.message}`]
       };
     }
   }
@@ -98,77 +91,57 @@ export class ValidatePhase extends BasePhase {
    * Simple validation without LLM (for quick checks)
    */
   quickValidate(execution: ExecutionResult): ValidationResult {
-    const errors = [];
-    const warnings = [];
+    const errors: string[] = [];
 
     // Check if execution was successful
     if (!execution.success) {
-      errors.push({
-        code: 'EXECUTION_FAILED',
-        message: 'Execution phase reported failure',
-        severity: 'error' as const
-      });
-    }
-
-    // Check if any files were changed
-    if (execution.filesChanged.length === 0) {
-      warnings.push('No files were modified');
+      errors.push('Execution phase reported failure');
     }
 
     // Add execution errors
     if (execution.errors) {
       for (const error of execution.errors) {
-        errors.push({
-          code: 'EXECUTION_ERROR',
-          message: error,
-          severity: 'error' as const
-        });
+        errors.push(`Execution error: ${error}`);
       }
     }
 
     // Generate a simple markdown summary
-    const summary = this.generateQuickSummary(execution, errors, warnings);
+    const summary = this.generateQuickSummary(execution, errors);
 
     return {
       isValid: errors.length === 0,
       summary,
-      errors,
-      warnings
+      errors
     };
   }
 
   private generateQuickSummary(
     execution: ExecutionResult,
-    errors: ValidationError[],
-    warnings: string[]
+    errors: string[]
   ): string {
-    const status = errors.length === 0 ? '✅' : '❌';
     const statusText = errors.length === 0 ? 'Completed Successfully' : 'Completed with Errors';
 
-    let summary = `## ${status} ${statusText}\n\n`;
+    let summary = `## Changes Summary\n\n`;
+    summary += `### 🎯 Overview\n${statusText}\n\n`;
 
     if (execution.filesChanged.length > 0) {
-      summary += `### 📁 Files Modified (${execution.filesChanged.length})\n\n`;
-      summary += execution.filesChanged.map(f => `- \`${f}\``).join('\n');
+      summary += `### 📁 Files Modified\n`;
+      summary += execution.filesChanged.map(f => `- ✅ \`${f}\``).join('\n');
       summary += '\n\n';
-    } else {
-      summary += '### ℹ️ No Files Modified\n\n';
     }
+
+    summary += `### 🔑 Key Changes\n`;
+    summary += `- Modified ${execution.filesChanged.length} file(s)\n\n`;
 
     if (errors.length > 0) {
-      summary += `### ❌ Errors (${errors.length})\n\n`;
-      summary += errors.map(e => `- **${e.code}**: ${e.message}`).join('\n');
+      summary += `### ❌ Errors Found\n`;
+      summary += errors.map(e => `- ${e}`).join('\n');
       summary += '\n\n';
+    } else {
+      summary += `### ✅ What's Done Well\n`;
+      summary += `- All changes applied successfully\n`;
+      summary += `- Files updated without errors\n`;
     }
-
-    if (warnings.length > 0) {
-      summary += `### ⚠️ Warnings (${warnings.length})\n\n`;
-      summary += warnings.map(w => `- ${w}`).join('\n');
-      summary += '\n\n';
-    }
-
-    summary += '---\n\n';
-    summary += `**Status**: ${execution.success ? '✅ Success' : '❌ Failed'}`;
 
     return summary;
   }
@@ -213,10 +186,9 @@ export class ValidatePhase extends BasePhase {
     } catch (error: any) {
       // Fallback validation result with basic summary
       return {
-        isValid: true,
-        summary: `## ⚠️ Validation Response Parsing Issue\n\nCould not parse the validation response properly.\n\n**Error**: ${error.message}\n\n---\n\n**Status**: Completed with parsing issues`,
-        errors: [],
-        warnings: [`Could not parse validation response: ${error.message}`]
+        isValid: false,
+        summary: `## ⚠️ Validation Response Parsing Issue\n\nCould not parse the validation response properly.\n\n**Error**: ${error.message}`,
+        errors: [`Could not parse validation response: ${error.message}`]
       };
     }
   }

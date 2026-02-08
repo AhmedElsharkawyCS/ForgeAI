@@ -3,19 +3,21 @@
  */
 
 import type { VirtualFile, Message } from '../types/state';
+import { buildDependencyGraph, formatDependencyGraph } from '../utils/dependency-graph';
+import { parsePackageJson, formatPackageDependencies } from '../utils/package-parser';
 
 export class ContextBuilder {
   /**
    * Build file context summary for LLM
    */
-  static buildFilesContext(files: VirtualFile[], maxFiles: number = 10): string {
+  static buildFilesContext(files: VirtualFile[], maxFiles: number | "all" = 10): string {
     if (files.length === 0) {
       return 'No files in the current state.';
     }
 
     const sortedFiles = files
       .sort((a, b) => b.lastModified - a.lastModified)
-      .slice(0, maxFiles);
+      .slice(0, maxFiles === "all" ? undefined : maxFiles);
 
     const fileList = sortedFiles.map(f => {
       const size = f.content.length;
@@ -36,7 +38,7 @@ export class ContextBuilder {
    * Build message history context
    * Includes full conversation context (user + assistant) for better understanding
    */
-  static buildMessagesContext(messages: Message[], maxMessages: number = 10, maxLength: number = 200): string {
+  static buildMessagesContext(messages: Message[], maxMessages: number = 10, maxLength: number = 1000): string {
     if (messages.length === 0) {
       return 'No previous messages.';
     }
@@ -61,10 +63,10 @@ export class ContextBuilder {
   /**
    * Build file content with truncation for large files
    */
-  static buildFileContent(file: VirtualFile, maxLines: number = 100): string {
+  static buildFileContent(file: VirtualFile, maxLines: number | 'all' = 100): string {
     const lines = file.content.split('\n');
 
-    if (lines.length <= maxLines) {
+    if (maxLines === "all" || lines.length <= maxLines) {
       return file.content;
     }
 
@@ -86,23 +88,67 @@ export class ContextBuilder {
    */
   static extractRelevantFiles(files: VirtualFile[], paths: string[]): VirtualFile[] {
     if (paths.length === 0) return [];
-    
+
     // Normalize to lowercase for comparison
     const normalizedPaths = paths.map(p => p.toLowerCase());
 
     return files.filter(f => {
       const filePath = f.path.toLowerCase();
-      
+
       return normalizedPaths.some(requestedPath => {
         // Exact path match
         if (filePath === requestedPath) return true;
-        
+
         // Directory match (if requestedPath ends with /)
         if (requestedPath.endsWith('/') && filePath.startsWith(requestedPath)) return true;
-        
+
         return false;
       });
     });
+  }
+
+  /**
+   * Build dependency graph context for LLM prompts
+   * Parses imports/exports and shows how files relate through dependencies
+   * 
+   * @param files - Array of virtual files
+   * @param maxFiles - Maximum number of files to show in graph (default: 50)
+   * @returns Formatted dependency graph string
+   */
+  static buildDependencyGraphContext(files: VirtualFile[], maxFiles: number | 'all' = 50): string {
+    if (files.length === 0) {
+      return '(No files in the current state)';
+    }
+
+    const graph = buildDependencyGraph(files);
+    return formatDependencyGraph(graph, maxFiles);
+  }
+
+  /**
+   * Build package dependencies context for LLM prompts
+   * Extracts and formats dependencies from package.json
+   * 
+   * @param files - Array of virtual files
+   * @returns Formatted dependencies string or fallback message
+   */
+  static buildPackageDependenciesContext(files: VirtualFile[]): string {
+    // Look for package.json in common locations
+    const packageFile = files.find(f =>
+      f.path === '/package.json' ||
+      f.path.endsWith('/package.json')
+    );
+
+    if (!packageFile) {
+      return '(No package.json found in project)';
+    }
+
+    const deps = parsePackageJson(packageFile.content);
+
+    if (!deps) {
+      return '(Failed to parse package.json)';
+    }
+
+    return formatPackageDependencies(deps);
   }
 
 }

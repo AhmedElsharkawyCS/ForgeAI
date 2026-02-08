@@ -27,7 +27,7 @@ export class AnthropicProvider implements ILLMProvider {
     });
     this.model = config.model || 'claude-sonnet-4-5';
     this.defaultTemperature = config.temperature ?? 0.7;
-    this.defaultMaxTokens = config.maxTokens ?? 4096;
+    this.defaultMaxTokens = config.maxTokens ?? 8192;
     this.streamingEnabled = config.streaming ?? false; // Default to true for Anthropic
   }
 

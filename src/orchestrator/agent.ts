@@ -314,8 +314,7 @@ export class Agent {
 
     this.logger.info('✓ Validation Phase completed', {
       isValid: validation.isValid,
-      errors: validation.errors.length,
-      warnings: validation.warnings.length,
+      errors: validation.errors.length
     });
 
     if (validation.errors.length > 0) {

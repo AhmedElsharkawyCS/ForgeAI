@@ -13,7 +13,7 @@ export class PolicyGate {
     this.config = {
       maxFileSize: config.maxFileSize || 1024 * 1024, // 1MB default
       allowedFileTypes: config.allowedFileTypes || [],
-      maxConcurrentActions: config.maxConcurrentActions || 10,
+      maxConcurrentActions: config.maxConcurrentActions || 20,
       requireConfirmation: config.requireConfirmation ?? false
     };
   }

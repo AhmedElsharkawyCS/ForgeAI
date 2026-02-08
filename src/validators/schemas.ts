@@ -49,7 +49,7 @@ export const ActionSchema = z.object({
   type: z.enum(['create_file', 'update_file', 'delete_file', 'read_file']),
   path: z.string().min(1),
   description: z.string(),
-  params: z.record(z.unknown()).optional()
+  relatedFiles: z.array(z.string()).optional(), // Files related through imports/dependencies
 });
 
 // Action Plan Schema
@@ -69,21 +69,11 @@ export const ExecutionResultSchema = z.object({
   metadata: z.record(z.unknown()).optional()
 });
 
-// Validation Error Schema
-export const ValidationErrorSchema = z.object({
-  code: z.string(),
-  message: z.string(),
-  path: z.string().optional(),
-  severity: z.enum(['error', 'warning'])
-});
-
 // Validation Result Schema
 export const ValidationResultSchema = z.object({
   isValid: z.boolean(),
-  summary: z.string(), // Markdown-formatted summary of changes
-  errors: z.array(ValidationErrorSchema),
-  warnings: z.array(z.string()),
-  suggestions: z.array(z.string()).optional()
+  summary: z.string(), // Markdown-formatted summary of changes (4 sections only)
+  errors: z.array(z.string()) // Simple error messages
 });
 
 // File Change Schema

@@ -26,7 +26,7 @@ export class OpenAIProvider implements ILLMProvider {
       organization: config.organization,
       dangerouslyAllowBrowser: true,
     });
-    this.model = config.model || 'gpt-4o';
+    this.model = config.model || 'gpt-5.2';
     this.defaultTemperature = config.temperature ?? 0.7;
     this.defaultMaxTokens = config.maxTokens;
     this.streamingEnabled = config.streaming ?? false; // Default to true for OpenAI
